@@ -666,6 +666,12 @@ function setLang(lang) {
   var t = TRANS[lang];
   document.documentElement.lang = lang;
 
+  // Universal handler: any element with data-es/data-en gets updated directly
+  document.querySelectorAll('[data-es][data-en]').forEach(function(el){
+    var val = lang === 'en' ? el.getAttribute('data-en') : el.getAttribute('data-es');
+    if (val) el.textContent = val;
+  });
+
   // toggle buttons
   document.getElementById('btn-es').classList.toggle('active', lang === 'es');
   document.getElementById('btn-en').classList.toggle('active', lang === 'en');
