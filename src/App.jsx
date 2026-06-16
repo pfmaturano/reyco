@@ -505,7 +505,76 @@ function DiligenciaModal({diligencia,cases,users,currentUser,onSave,onClose}){
 }
 
 // ─── REPORTES ─────────────────────────────────────────────────────────────────
-function Reportes({cases,clientes,agenda,testimoniales,cfg}){
+// ─── BITÁCORA GENERAL ─────────────────────────────────────────────────────────
+function BitacoraGeneral({cases,users}){
+  const [filtroAbogado,setFiltroAbogado]=useState("");
+  const [filtroMateria,setFiltroMateria]=useState("");
+  const [filtroTipo,setFiltroTipo]=useState("");
+  const [search,setSearch]=useState("");
+  const TIPOS=["Nota","Audiencia","Escrito","Resolución","Notificación","Pago","Otro","Sistema"];
+  const TIPO_COLOR={"Nota":"#6b7280","Audiencia":"#2563eb","Escrito":"#7c3aed","Resolución":"#16a34a","Notificación":"#ca8a04","Pago":"#B8960C","Otro":"#6b7280","Sistema":"#374151"};
+
+  // Combina todos los movimientos de bitácora de todos los expedientes en una sola lista
+  const allEntries=[];
+  cases.forEach(c=>{
+    (c.log||[]).forEach(entry=>{
+      allEntries.push({
+        ...entry,
+        caso:c,
+        abogado:users.find(u=>u.id===c.abogadoId),
+      });
+    });
+  });
+
+  const filtered=allEntries
+    .filter(e=>!filtroAbogado||e.caso.abogadoId===filtroAbogado)
+    .filter(e=>!filtroMateria||e.caso.materia===filtroMateria)
+    .filter(e=>!filtroTipo||e.tipo===filtroTipo)
+    .filter(e=>!search||e.texto?.toLowerCase().includes(search.toLowerCase())||e.caso.expediente?.toLowerCase().includes(search.toLowerCase())||e.caso.demandante?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  const abogados=users.filter(u=>u.role==="abogado"||u.role==="superuser");
+
+  return(<div>
+    <div style={S.pageHeader}><div><div style={S.pageTitle}>Bitácora General</div><div style={S.pageSubtitle}>{filtered.length} movimiento{filtered.length!==1?"s":""} de todos los expedientes</div></div></div>
+
+    <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+      <input style={{...S.input,width:220}} placeholder="Buscar texto, expediente o nombre..." value={search} onChange={e=>setSearch(e.target.value)}/>
+      <select style={{...S.select,width:170}} value={filtroAbogado} onChange={e=>setFiltroAbogado(e.target.value)}>
+        <option value="">Todos los abogados</option>
+        {abogados.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+      </select>
+      <select style={{...S.select,width:150}} value={filtroMateria} onChange={e=>setFiltroMateria(e.target.value)}>
+        <option value="">Todas las materias</option>
+        {MATERIAS.map(m=><option key={m}>{m}</option>)}
+      </select>
+      <select style={{...S.select,width:150}} value={filtroTipo} onChange={e=>setFiltroTipo(e.target.value)}>
+        <option value="">Todos los tipos</option>
+        {TIPOS.map(t=><option key={t}>{t}</option>)}
+      </select>
+    </div>
+
+    {filtered.length===0&&<div style={{...S.card,textAlign:"center",color:"#6b7280",fontSize:13}}>Sin movimientos que coincidan con los filtros.</div>}
+
+    {filtered.map((e,i)=>(
+      <div key={e.id||i} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start",padding:"10px 14px",background:"#111827",border:"1px solid #B8960C18",borderLeft:`3px solid ${TIPO_COLOR[e.tipo]||"#6b7280"}`}}>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,background:(TIPO_COLOR[e.tipo]||"#6b7280")+"22",color:TIPO_COLOR[e.tipo]||"#6b7280",padding:"2px 8px",fontWeight:600}}>{e.tipo||"Nota"}</span>
+            <span style={{fontSize:11,color:"#6b7280"}}>{fmtDate(e.fecha)}</span>
+            <span style={{fontSize:11,color:"#B8960C"}}>· {e.caso.expediente||"Sin expediente"}</span>
+            <Chip label={e.caso.materia}/>
+            {e.abogado&&<span style={{fontSize:11,color:"#6b7280"}}>· {e.abogado.name}</span>}
+          </div>
+          <div style={{fontSize:13,color:"#d1d5db",marginBottom:3}}>{e.texto}</div>
+          <div style={{fontSize:11,color:"#6b7280"}}>{e.caso.demandante} <span style={{color:"#374151"}}>vs</span> {e.caso.demandado}</div>
+        </div>
+      </div>
+    ))}
+  </div>);
+}
+
+
   const activos=cases.filter(c=>c.estado==="Activo");
   const cerrados=cases.filter(c=>c.estado==="Cerrado"||c.estado==="Archivado");
   const counts={green:0,yellow:0,orange:0,red:0,gray:0};
@@ -803,12 +872,12 @@ function ExpedienteQR({caso}){
   </div>);
 }
 
-function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser}){
+function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser,defaultTab}){
   const abogado=users.find(u=>u.id===caso.abogadoId);
   const color=semaforo(caso.fechaLimite,caso.docsCompletos,cfg);
   const items=DOC_CHECKLIST[caso.materia]||DOC_CHECKLIST.Otro;
   const cerrado=caso.estado==="Cerrado"||caso.estado==="Archivado";
-  const [tab,setTab]=useState("info");
+  const [tab,setTab]=useState(defaultTab||"info");
   const docsPdfs=caso.docsPdfs||{};
   const tabSt=(a)=>({padding:"8px 14px",fontSize:10,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",color:a?"#B8960C":"#6b7280",borderBottom:a?"2px solid #B8960C":"2px solid transparent",background:"transparent",border:"none",fontFamily:"inherit"});
   return(<div style={S.overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -872,6 +941,7 @@ function NotariaModal({doc,onSave,onClose}){
 function CasesList({cases,users,clientes,cfg,currentUser,onUpdate,openExpedienteId,onOpened}){
   const [modal,setModal]=useState(null);
   const [detail,setDetail]=useState(null);
+  const [detailFromQR,setDetailFromQR]=useState(false);
   const [encModal,setEncModal]=useState(null);
   const [search,setSearch]=useState("");
   const [filterMateria,setFilterMateria]=useState("");
@@ -883,11 +953,11 @@ function CasesList({cases,users,clientes,cfg,currentUser,onUpdate,openExpediente
     .filter(c=>!filterEstado||c.estado===filterEstado)
     .sort((a,b)=>{const ord={red:0,orange:1,yellow:2,gray:3,green:4};return ord[semaforo(a.fechaLimite,a.docsCompletos,cfg)]-ord[semaforo(b.fechaLimite,b.docsCompletos,cfg)];});
 
-  // Si llegamos desde un QR escaneado, abre ese expediente automáticamente
+  // Si llegamos desde un QR escaneado, abre ese expediente automáticamente en la pestaña Bitácora
   useEffect(()=>{
     if(openExpedienteId){
       const found=cases.find(c=>c.id===openExpedienteId);
-      if(found){ setDetail(found); onOpened&&onOpened(); }
+      if(found){ setDetail(found); setDetailFromQR(true); onOpened&&onOpened(); }
     }
   },[openExpedienteId,cases]);
 
@@ -927,7 +997,7 @@ function CasesList({cases,users,clientes,cfg,currentUser,onUpdate,openExpediente
       </table>
     </div>
     {modal!==null&&<CaseModal caso={modal?.id?modal:null} users={users} clientes={clientes} onSave={saveCase} onClose={()=>setModal(null)}/>}
-    {detail&&<CaseDetail caso={detail} users={users} cfg={cfg} currentUser={currentUser} onEdit={()=>{setModal(detail);setDetail(null);}} onClose={()=>setDetail(null)} onEnviarEncuesta={()=>{setEncModal(detail);setDetail(null);}}/>}
+    {detail&&<CaseDetail caso={detail} users={users} cfg={cfg} currentUser={currentUser} defaultTab={detailFromQR?"bitacora":"info"} onEdit={()=>{setModal(detail);setDetail(null);setDetailFromQR(false);}} onClose={()=>{setDetail(null);setDetailFromQR(false);}} onEnviarEncuesta={()=>{setEncModal(detail);setDetail(null);setDetailFromQR(false);}}/>}
     {encModal&&<EnviarEncuestaModal caso={encModal} onClose={()=>setEncModal(null)}/>}
   </div>);
 }
@@ -1088,6 +1158,7 @@ export default function App(){
     if(page==="testimoniales")return<TestimonialesAdmin testimoniales={testimoniales} onUpdate={saveTestimoniales}/>;
     if(page==="clientes")return<Clientes clientes={clientes} cases={cases} onUpdate={saveClientes}/>;
     if(page==="agenda")return<Agenda agenda={agenda} cases={cases} users={users} currentUser={user} onUpdate={saveAgenda}/>;
+    if(page==="bitacoraGeneral")return<BitacoraGeneral cases={isSuper?cases:cases.filter(c=>c.abogadoId===user.id)} users={users}/>;
     if(page==="reportes")return<Reportes cases={cases} clientes={clientes} agenda={agenda} testimoniales={testimoniales} cfg={cfg}/>;
     if(module==="notaria"){
       if(page==="dashboard")return<DashboardNotaria docs={notariaDocs}/>;
@@ -1102,6 +1173,7 @@ export default function App(){
     {id:"cases",label:"Expedientes",icon:"📁"},
     {id:"clientes",label:"Clientes",icon:"👤"},
     {id:"agenda",label:"Agenda",icon:"📅",badge:prox3>0?prox3:0},
+    {id:"bitacoraGeneral",label:"Bitácora General",icon:"📜"},
     ...(isSuper?[
       {id:"testimoniales",label:"Testimoniales",icon:"⭐",badge:pendTest},
       {id:"reportes",label:"Reportes",icon:"📊"},
