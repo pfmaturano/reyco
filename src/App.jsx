@@ -764,7 +764,7 @@ function DashboardNotaria({docs}){
 }
 
 // ─── CASE FORM MODAL ──────────────────────────────────────────────────────────
-function CaseModal({caso,users,clientes,onSave,onClose}){
+function CaseModal({caso,users,clientes,currentUser,onSave,onClose}){
   const abogados=users.filter(u=>u.role==="abogado"||u.role==="superuser");
   const empty={id:null,expediente:"",carpeta:"",sentencia:"",materia:"Penal",estado:"Activo",demandante:"",demandado:"",clienteId:"",telCliente:"",emailCliente:"",abogadoId:abogados[0]?.id||"",fechaInicio:new Date().toISOString().slice(0,10),fechaLimite:"",notas:"",docs:{},pdfs:[],log:[],notas_equipo:[],honorarios:{monto:0,pagado:0,pagos:[]},docsCompletos:false};
   const [f,setF]=useState(caso?{...caso,log:caso.log||[],notas_equipo:caso.notas_equipo||[],honorarios:caso.honorarios||{monto:0,pagado:0,pagos:[]}}:empty);
@@ -822,7 +822,7 @@ function CaseModal({caso,users,clientes,onSave,onClose}){
       {tab==="docs"&&<Checklist materia={f.materia} checked={f.docs} onChange={v=>set("docs",v)} pdfsByDoc={f.docsPdfs||{}} onPdfChange={v=>set("docsPdfs",v)}/>}
       {tab==="honor"&&<HonorariosMini honorarios={f.honorarios} onUpdate={v=>set("honorarios",v)}/>}
       {tab==="bitacora"&&<Bitacora log={f.log} onAdd={entry=>set("log",[...(f.log||[]),entry])}/>}
-      {tab==="notas"&&<NotasRapidas notas={f.notas_equipo} currentUser={{name:"Usuario"}} onAdd={n=>set("notas_equipo",[...(f.notas_equipo||[]),n])}/>}
+      {tab==="notas"&&<NotasRapidas notas={f.notas_equipo} currentUser={currentUser} onAdd={n=>set("notas_equipo",[...(f.notas_equipo||[]),n])}/>}
       {tab==="pdfs"&&<PdfAttach pdfs={f.pdfs||[]} onChange={v=>set("pdfs",v)}/>}
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #B8960C22"}}>
         <button style={{...S.btn,...S.btnGhost}} onClick={onClose}>Cancelar</button>
@@ -872,7 +872,7 @@ function ExpedienteQR({caso}){
   </div>);
 }
 
-function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser,defaultTab}){
+function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser,defaultTab,onUpdateCaso}){
   const abogado=users.find(u=>u.id===caso.abogadoId);
   const color=semaforo(caso.fechaLimite,caso.docsCompletos,cfg);
   const items=DOC_CHECKLIST[caso.materia]||DOC_CHECKLIST.Otro;
@@ -905,9 +905,9 @@ function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser,
         </div>
         {cerrado&&<div style={{background:"#16a34a11",border:"1px solid #16a34a33",padding:"14px 16px",marginTop:14}}><div style={{fontSize:11,color:"#86efac",marginBottom:6,letterSpacing:1}}>CASO CONCLUIDO</div><div style={{fontSize:12,color:"#9ca3af",marginBottom:10}}>Envíe una encuesta de satisfacción al cliente.</div><button style={{...S.btn,...S.btnGreen}} onClick={onEnviarEncuesta}>📋 Enviar encuesta</button></div>}
       </div>}
-      {tab==="bitacora"&&<Bitacora log={caso.log} onAdd={()=>{}}/>}
-      {tab==="notas"&&<NotasRapidas notas={caso.notas_equipo||[]} currentUser={currentUser} onAdd={()=>{}}/>}
-      {tab==="honor"&&<HonorariosMini honorarios={caso.honorarios||{monto:0,pagado:0,pagos:[]}} onUpdate={()=>{}}/>}
+      {tab==="bitacora"&&<Bitacora log={caso.log} onAdd={entry=>onUpdateCaso&&onUpdateCaso({...caso,log:[...(caso.log||[]),entry]})}/>}
+      {tab==="notas"&&<NotasRapidas notas={caso.notas_equipo||[]} currentUser={currentUser} onAdd={n=>onUpdateCaso&&onUpdateCaso({...caso,notas_equipo:[...(caso.notas_equipo||[]),n]})}/>}
+      {tab==="honor"&&<HonorariosMini honorarios={caso.honorarios||{monto:0,pagado:0,pagos:[]}} onUpdate={h=>onUpdateCaso&&onUpdateCaso({...caso,honorarios:h})}/>}
       {tab==="qr"&&<ExpedienteQR caso={caso}/>}
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #B8960C22"}}>
         <button style={{...S.btn,...S.btnGhost}} onClick={onClose}>Cerrar</button>
@@ -996,8 +996,8 @@ function CasesList({cases,users,clientes,cfg,currentUser,onUpdate,openExpediente
         </tbody>
       </table>
     </div>
-    {modal!==null&&<CaseModal caso={modal?.id?modal:null} users={users} clientes={clientes} onSave={saveCase} onClose={()=>setModal(null)}/>}
-    {detail&&<CaseDetail caso={detail} users={users} cfg={cfg} currentUser={currentUser} defaultTab={detailFromQR?"bitacora":"info"} onEdit={()=>{setModal(detail);setDetail(null);setDetailFromQR(false);}} onClose={()=>{setDetail(null);setDetailFromQR(false);}} onEnviarEncuesta={()=>{setEncModal(detail);setDetail(null);setDetailFromQR(false);}}/>}
+    {modal!==null&&<CaseModal caso={modal?.id?modal:null} users={users} clientes={clientes} currentUser={currentUser} onSave={saveCase} onClose={()=>setModal(null)}/>}
+    {detail&&<CaseDetail caso={detail} users={users} cfg={cfg} currentUser={currentUser} defaultTab={detailFromQR?"bitacora":"info"} onEdit={()=>{setModal(detail);setDetail(null);setDetailFromQR(false);}} onClose={()=>{setDetail(null);setDetailFromQR(false);}} onEnviarEncuesta={()=>{setEncModal(detail);setDetail(null);setDetailFromQR(false);}} onUpdateCaso={(updated)=>{onUpdate(cases.map(c=>c.id===updated.id?updated:c));setDetail(updated);}}/>}
     {encModal&&<EnviarEncuestaModal caso={encModal} onClose={()=>setEncModal(null)}/>}
   </div>);
 }
