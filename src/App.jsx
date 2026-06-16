@@ -574,7 +574,7 @@ function BitacoraGeneral({cases,users}){
   </div>);
 }
 
-
+function Reportes({cases,clientes,agenda,testimoniales,cfg}){
   const activos=cases.filter(c=>c.estado==="Activo");
   const cerrados=cases.filter(c=>c.estado==="Cerrado"||c.estado==="Archivado");
   const counts={green:0,yellow:0,orange:0,red:0,gray:0};
