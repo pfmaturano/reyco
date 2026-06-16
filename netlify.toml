@@ -1,0 +1,15 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Sirve el sitio institucional en la raíz
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200
+
+# La app React maneja sus propias rutas dentro de /app
+[[redirects]]
+  from = "/app/*"
+  to = "/app/index.html"
+  status = 200
