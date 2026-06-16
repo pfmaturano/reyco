@@ -2,6 +2,11 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_API_KEY"
+  SECRETS_SCAN_OMIT_PATHS = "src/firebase.js,dist/app/assets/*"
+
+# App React en /app/*
 [[redirects]]
   from = "/app"
   to = "/app/index.html"
@@ -10,4 +15,10 @@
 [[redirects]]
   from = "/app/*"
   to = "/app/index.html"
+  status = 200
+
+# Sitio institucional en raíz
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
   status = 200
