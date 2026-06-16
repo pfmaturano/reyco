@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { dbGetCloud, dbSetCloud, dbSubscribe } from "./firebase.js";
 
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 const KEYS = {
@@ -6,8 +7,11 @@ const KEYS = {
   settings:"reyco_settings", testimoniales:"reyco_testimoniales",
   clientes:"reyco_clientes", agenda:"reyco_agenda",
 };
+// Caché local instantáneo (para que la app cargue rápido sin esperar la red)
 function dbGet(k){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):null; }catch{ return null; } }
-function dbSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
+function dbSetLocal(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
+// Escritura real: guarda en caché local Y en la nube (Firestore)
+function dbSet(k,v){ dbSetLocal(k,v); dbSetCloud(k,v); }
 
 // ─── DEFAULTS ─────────────────────────────────────────────────────────────────
 const DEFAULT_USERS=[
@@ -116,12 +120,46 @@ function Chip({label,color="#B8960C"}){return <span style={{background:color+"22
 
 function BarProg({pct,color}){return(<div style={{background:"#0f172a",height:4,borderRadius:2,overflow:"hidden",marginTop:5}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:SC[color]||SC.gray,transition:"width .3s"}}/></div>);}
 
-function Checklist({materia,checked,onChange}){
+function Checklist({materia,checked,onChange,pdfsByDoc,onPdfChange}){
   const items=DOC_CHECKLIST[materia]||DOC_CHECKLIST.Otro;
+  const pdfMap=pdfsByDoc||{};
+  function handleFile(item,e){
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      onPdfChange({...pdfMap,[item]:{id:uid(),name:file.name,data:ev.target.result,fecha:new Date().toISOString()}});
+      onChange({...checked,[item]:true}); // marcar automáticamente como completo al subir el PDF
+    };
+    r.readAsDataURL(file);
+  }
+  function removePdf(item){ const u={...pdfMap}; delete u[item]; onPdfChange(u); }
   return(<div style={{background:"#0f172a",border:"1px solid #B8960C22",padding:14}}>
     <div style={{fontSize:10,letterSpacing:2,color:"#B8960C",textTransform:"uppercase",marginBottom:10}}>Documentación requerida</div>
-    {items.map(item=>(<label key={item} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer",fontSize:13,color:checked[item]?"#86efac":"#9ca3af"}}><input type="checkbox" checked={!!checked[item]} onChange={e=>onChange({...checked,[item]:e.target.checked})} style={{accentColor:"#B8960C"}}/>{item}</label>))}
-    <div style={{marginTop:10,fontSize:11,color:"#6b7280"}}>{Object.values(checked).filter(Boolean).length}/{items.length} docs {Object.values(checked).filter(Boolean).length===items.length?<span style={{color:"#16a34a"}}>✓ Completo</span>:<span style={{color:"#ea580c"}}>⚠ Incompleto</span>}</div>
+    {items.map(item=>{
+      const pdf=pdfMap[item];
+      return(<div key={item} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid #B8960C11"}}>
+        <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:checked[item]?"#86efac":"#9ca3af"}}>
+          <input type="checkbox" checked={!!checked[item]} onChange={e=>onChange({...checked,[item]:e.target.checked})} style={{accentColor:"#B8960C"}}/>
+          {item}
+        </label>
+        <div style={{marginLeft:26,marginTop:6}}>
+          {pdf ? (
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"#111827",border:"1px solid #B8960C22",fontSize:11}}>
+              <span style={{color:"#d1d5db"}}>📄 {pdf.name}</span>
+              <div style={{display:"flex",gap:8}}>
+                <a href={pdf.data} download={pdf.name} style={{color:"#B8960C",textDecoration:"none"}}>↓</a>
+                <span style={{color:"#f87171",cursor:"pointer"}} onClick={()=>removePdf(item)}>✕</span>
+              </div>
+            </div>
+          ) : (
+            <label style={{display:"inline-block",padding:"5px 12px",background:"#B8960C18",color:"#B8960C",fontSize:11,cursor:"pointer",border:"1px solid #B8960C33"}}>
+              + Adjuntar PDF de este documento<input type="file" accept="application/pdf" style={{display:"none"}} onChange={e=>handleFile(item,e)}/>
+            </label>
+          )}
+        </div>
+      </div>);
+    })}
+    <div style={{marginTop:6,fontSize:11,color:"#6b7280"}}>{Object.values(checked).filter(Boolean).length}/{items.length} docs {Object.values(checked).filter(Boolean).length===items.length?<span style={{color:"#16a34a"}}>✓ Completo</span>:<span style={{color:"#ea580c"}}>⚠ Incompleto</span>}</div>
   </div>);
 }
 
@@ -712,7 +750,7 @@ function CaseModal({caso,users,clientes,onSave,onClose}){
         </div>
         <div><label style={S.label}>Notas generales</label><textarea style={S.textarea} value={f.notas} onChange={e=>set("notas",e.target.value)}/></div>
       </div>}
-      {tab==="docs"&&<Checklist materia={f.materia} checked={f.docs} onChange={v=>set("docs",v)}/>}
+      {tab==="docs"&&<Checklist materia={f.materia} checked={f.docs} onChange={v=>set("docs",v)} pdfsByDoc={f.docsPdfs||{}} onPdfChange={v=>set("docsPdfs",v)}/>}
       {tab==="honor"&&<HonorariosMini honorarios={f.honorarios} onUpdate={v=>set("honorarios",v)}/>}
       {tab==="bitacora"&&<Bitacora log={f.log} onAdd={entry=>set("log",[...(f.log||[]),entry])}/>}
       {tab==="notas"&&<NotasRapidas notas={f.notas_equipo} currentUser={{name:"Usuario"}} onAdd={n=>set("notas_equipo",[...(f.notas_equipo||[]),n])}/>}
@@ -726,12 +764,52 @@ function CaseModal({caso,users,clientes,onSave,onClose}){
 }
 
 // ─── CASE DETAIL MODAL ────────────────────────────────────────────────────────
+// ─── QR DE EXPEDIENTE ─────────────────────────────────────────────────────────
+function expedienteURL(caso){
+  const base=window.location.origin+"/app";
+  return `${base}?exp=${caso.id}`;
+}
+function ExpedienteQR({caso}){
+  const url=expedienteURL(caso);
+  const qrImgSrc=`https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&color=15-23-42&bgcolor=255-255-255&data=${encodeURIComponent(url)}`;
+  function imprimir(){
+    const w=window.open("","_blank");
+    w.document.write(`<html><head><title>QR — ${caso.expediente}</title><style>
+      body{font-family:Arial,sans-serif;text-align:center;padding:40px;}
+      h2{color:#0D0D0D;margin-bottom:4px;}
+      p{color:#6b7280;margin-top:0;}
+      img{margin:20px 0;}
+    </style></head><body>
+      <h2>REYCO — ${caso.expediente||"Expediente"}</h2>
+      <p>${caso.demandante} vs ${caso.demandado}</p>
+      <img src="${qrImgSrc}" width="280" height="280"/>
+      <p style="font-size:11px;">Escanee para abrir este expediente en la app REYCO</p>
+    </body></html>`);
+    w.document.close();
+    setTimeout(()=>w.print(),400);
+  }
+  return(<div style={{textAlign:"center",padding:"10px 0"}}>
+    <div style={{fontSize:10,letterSpacing:2,color:"#B8960C",textTransform:"uppercase",marginBottom:14}}>Código QR del expediente</div>
+    <div style={{background:"#fff",display:"inline-block",padding:14,borderRadius:4}}>
+      <img src={qrImgSrc} alt="QR expediente" width={220} height={220} style={{display:"block"}}/>
+    </div>
+    <div style={{fontSize:12,color:"#9ca3af",marginTop:14,maxWidth:320,marginLeft:"auto",marginRight:"auto"}}>
+      Al escanear este código desde la app móvil REYCO (o cualquier lector de QR), se abrirá directamente este expediente tras iniciar sesión.
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:16}}>
+      <button style={{...S.btn,...S.btnPrimary}} onClick={imprimir}>🖨 Imprimir</button>
+      <button style={{...S.btn,...S.btnGhost}} onClick={()=>{navigator.clipboard?.writeText(url);alert("Enlace copiado");}}>Copiar enlace</button>
+    </div>
+  </div>);
+}
+
 function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser}){
   const abogado=users.find(u=>u.id===caso.abogadoId);
   const color=semaforo(caso.fechaLimite,caso.docsCompletos,cfg);
   const items=DOC_CHECKLIST[caso.materia]||DOC_CHECKLIST.Otro;
   const cerrado=caso.estado==="Cerrado"||caso.estado==="Archivado";
   const [tab,setTab]=useState("info");
+  const docsPdfs=caso.docsPdfs||{};
   const tabSt=(a)=>({padding:"8px 14px",fontSize:10,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",color:a?"#B8960C":"#6b7280",borderBottom:a?"2px solid #B8960C":"2px solid transparent",background:"transparent",border:"none",fontFamily:"inherit"});
   return(<div style={S.overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
     <div style={S.modal}>
@@ -740,19 +818,28 @@ function CaseDetail({caso,users,cfg,onEdit,onClose,onEnviarEncuesta,currentUser}
         <span style={{...S.semDot(SC[color]),width:12,height:12,marginTop:6}}/>
       </div>
       <div style={{display:"flex",gap:0,borderBottom:"1px solid #B8960C22",marginBottom:16,overflowX:"auto"}}>
-        {[["info","Información"],["bitacora","Bitácora"],["notas","Notas"],["honor","Honorarios"]].map(([k,l])=><button key={k} style={tabSt(tab===k)} onClick={()=>setTab(k)}>{l}</button>)}
+        {[["info","Información"],["bitacora","Bitácora"],["notas","Notas"],["honor","Honorarios"],["qr","Código QR"]].map(([k,l])=><button key={k} style={tabSt(tab===k)} onClick={()=>setTab(k)}>{l}</button>)}
       </div>
       {tab==="info"&&<div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
           {[["Carpeta",caso.carpeta],["Sentencia",caso.sentencia],["Abogado",abogado?.name],["Estado",caso.estado],["Fecha inicio",fmtDate(caso.fechaInicio)],["Fecha límite",fmtDate(caso.fechaLimite)]].map(([k,v])=>(<div key={k} style={S.infoBox}><div style={{fontSize:9,letterSpacing:2,color:"#6b7280",textTransform:"uppercase"}}>{k}</div><div style={{fontSize:13,color:"#d1d5db",marginTop:3}}>{v||"—"}</div></div>))}
         </div>
-        <div style={{marginBottom:14}}><div style={{fontSize:10,letterSpacing:2,color:"#B8960C",textTransform:"uppercase",marginBottom:8}}>Documentación</div>{items.map(item=>(<div key={item} style={{display:"flex",alignItems:"center",gap:7,marginBottom:7,fontSize:13,color:caso.docs?.[item]?"#86efac":"#f87171"}}><span>{caso.docs?.[item]?"✓":"✗"}</span>{item}</div>))}</div>
-        {caso.pdfs?.length>0&&<div style={{marginBottom:14}}><div style={{fontSize:10,letterSpacing:2,color:"#B8960C",textTransform:"uppercase",marginBottom:8}}>Archivos</div>{caso.pdfs.map(p=><div key={p.id} style={{fontSize:13,color:"#d1d5db",marginBottom:5}}>📄 <a href={p.data} download={p.name} style={{color:"#B8960C"}}>{p.name}</a></div>)}</div>}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,letterSpacing:2,color:"#B8960C",textTransform:"uppercase",marginBottom:8}}>Documentación</div>
+          {items.map(item=>{
+            const pdf=docsPdfs[item];
+            return(<div key={item} style={{marginBottom:8,paddingBottom:8,borderBottom:"1px solid #B8960C11"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,fontSize:13,color:caso.docs?.[item]?"#86efac":"#f87171"}}><span>{caso.docs?.[item]?"✓":"✗"}</span>{item}</div>
+              {pdf&&<div style={{marginLeft:20,marginTop:4,fontSize:12,color:"#d1d5db"}}>📄 <a href={pdf.data} download={pdf.name} style={{color:"#B8960C"}}>{pdf.name}</a></div>}
+            </div>);
+          })}
+        </div>
         {cerrado&&<div style={{background:"#16a34a11",border:"1px solid #16a34a33",padding:"14px 16px",marginTop:14}}><div style={{fontSize:11,color:"#86efac",marginBottom:6,letterSpacing:1}}>CASO CONCLUIDO</div><div style={{fontSize:12,color:"#9ca3af",marginBottom:10}}>Envíe una encuesta de satisfacción al cliente.</div><button style={{...S.btn,...S.btnGreen}} onClick={onEnviarEncuesta}>📋 Enviar encuesta</button></div>}
       </div>}
       {tab==="bitacora"&&<Bitacora log={caso.log} onAdd={()=>{}}/>}
       {tab==="notas"&&<NotasRapidas notas={caso.notas_equipo||[]} currentUser={currentUser} onAdd={()=>{}}/>}
       {tab==="honor"&&<HonorariosMini honorarios={caso.honorarios||{monto:0,pagado:0,pagos:[]}} onUpdate={()=>{}}/>}
+      {tab==="qr"&&<ExpedienteQR caso={caso}/>}
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #B8960C22"}}>
         <button style={{...S.btn,...S.btnGhost}} onClick={onClose}>Cerrar</button>
         <button style={{...S.btn,...S.btnPrimary}} onClick={onEdit}>Editar</button>
@@ -782,7 +869,7 @@ function NotariaModal({doc,onSave,onClose}){
 }
 
 // ─── CASES LIST ───────────────────────────────────────────────────────────────
-function CasesList({cases,users,clientes,cfg,currentUser,onUpdate}){
+function CasesList({cases,users,clientes,cfg,currentUser,onUpdate,openExpedienteId,onOpened}){
   const [modal,setModal]=useState(null);
   const [detail,setDetail]=useState(null);
   const [encModal,setEncModal]=useState(null);
@@ -795,6 +882,15 @@ function CasesList({cases,users,clientes,cfg,currentUser,onUpdate}){
     .filter(c=>!filterMateria||c.materia===filterMateria)
     .filter(c=>!filterEstado||c.estado===filterEstado)
     .sort((a,b)=>{const ord={red:0,orange:1,yellow:2,gray:3,green:4};return ord[semaforo(a.fechaLimite,a.docsCompletos,cfg)]-ord[semaforo(b.fechaLimite,b.docsCompletos,cfg)];});
+
+  // Si llegamos desde un QR escaneado, abre ese expediente automáticamente
+  useEffect(()=>{
+    if(openExpedienteId){
+      const found=cases.find(c=>c.id===openExpedienteId);
+      if(found){ setDetail(found); onOpened&&onOpened(); }
+    }
+  },[openExpedienteId,cases]);
+
   function saveCase(c){const u=cases.find(x=>x.id===c.id)?cases.map(x=>x.id===c.id?c:x):[...cases,c];onUpdate(u);setModal(null);setDetail(null);}
   function deleteCase(id){if(!confirm("¿Eliminar?"))return;onUpdate(cases.filter(c=>c.id!==id));}
   return(<div>
@@ -930,11 +1026,15 @@ export default function App(){
   const [clientes,setClientes]=useState([]);
   const [agenda,setAgenda]=useState([]);
   const [encuestaToken,setEncuestaToken]=useState(null);
+  const [pendingExpediente,setPendingExpediente]=useState(null);
   const [showNotif,setShowNotif]=useState(false);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const t=params.get("encuesta");if(t)setEncuestaToken(t);
+    const exp=params.get("exp");if(exp)setPendingExpediente(exp);
+
+    // 1. Carga instantánea desde caché local (para que la UI no se vea vacía)
     const c=dbGet(KEYS.cases);if(c)setCases(c);
     const n=dbGet(KEYS.notaria);if(n)setNotariaDocs(n);
     const u=dbGet(KEYS.users);if(u)setUsers(u);
@@ -942,6 +1042,19 @@ export default function App(){
     const test=dbGet(KEYS.testimoniales);if(test)setTestimoniales(test);
     const cl=dbGet(KEYS.clientes);if(cl)setClientes(cl);
     const ag=dbGet(KEYS.agenda);if(ag)setAgenda(ag);
+
+    // 2. Suscripción en tiempo real a Firestore: cuando cambia en cualquier
+    //    dispositivo (computadora, celular), se actualiza aquí también.
+    const unsubs = [
+      dbSubscribe(KEYS.cases, (v)=>{ setCases(v); dbSetLocal(KEYS.cases, v); }),
+      dbSubscribe(KEYS.notaria, (v)=>{ setNotariaDocs(v); dbSetLocal(KEYS.notaria, v); }),
+      dbSubscribe(KEYS.users, (v)=>{ setUsers(v); dbSetLocal(KEYS.users, v); }),
+      dbSubscribe(KEYS.settings, (v)=>{ setCfg(v); dbSetLocal(KEYS.settings, v); }),
+      dbSubscribe(KEYS.testimoniales, (v)=>{ setTestimoniales(v); dbSetLocal(KEYS.testimoniales, v); }),
+      dbSubscribe(KEYS.clientes, (v)=>{ setClientes(v); dbSetLocal(KEYS.clientes, v); }),
+      dbSubscribe(KEYS.agenda, (v)=>{ setAgenda(v); dbSetLocal(KEYS.agenda, v); }),
+    ];
+    return ()=>{ unsubs.forEach(u=>u && u()); };
   },[]);
 
   const saveCases=useCallback((d)=>{setCases(d);dbSet(KEYS.cases,d);},[]);
@@ -951,6 +1064,11 @@ export default function App(){
   const saveTestimoniales=useCallback((d)=>{setTestimoniales(d);dbSet(KEYS.testimoniales,d);},[]);
   const saveClientes=useCallback((d)=>{setClientes(d);dbSet(KEYS.clientes,d);},[]);
   const saveAgenda=useCallback((d)=>{setAgenda(d);dbSet(KEYS.agenda,d);},[]);
+
+  // Si venimos de escanear un QR de expediente, navega directo a Expedientes
+  useEffect(()=>{
+    if(pendingExpediente && page!=="cases") setPage("cases");
+  },[pendingExpediente]);
 
   if(encuestaToken)return<EncuestaPublica token={encuestaToken} onSubmit={r=>saveTestimoniales([...testimoniales,r])}/>;
   if(!user)return<Login onLogin={u=>{setUser(u);setPage("dashboard");setActiveModule(u.role==="notaria"?"notaria":"bufete");}}/>;
@@ -976,7 +1094,7 @@ export default function App(){
       return<NotariaList docs={notariaDocs} onUpdate={saveNotaria}/>;
     }
     if(page==="dashboard")return<DashboardBufete cases={cases} users={users} cfg={cfg} testimoniales={testimoniales} agenda={agenda} clientes={clientes}/>;
-    return<CasesList cases={cases} users={users} clientes={clientes} cfg={cfg} currentUser={user} onUpdate={saveCases}/>;
+    return<CasesList cases={cases} users={users} clientes={clientes} cfg={cfg} currentUser={user} onUpdate={saveCases} openExpedienteId={pendingExpediente} onOpened={()=>setPendingExpediente(null)}/>;
   }
 
   const navBufete=[
